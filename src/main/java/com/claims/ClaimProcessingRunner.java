@@ -2,9 +2,6 @@ package com.claims;
 
 import com.claims.model.Claim;
 import com.claims.model.ClaimResult;
-import com.claims.model.CoverageRule;
-import com.claims.model.Plan;
-import com.claims.model.PolicyHolder;
 import com.claims.repository.CoverageRuleRepository;
 import com.claims.repository.PlanRepository;
 import com.claims.repository.PolicyHolderRepository;
@@ -16,10 +13,6 @@ public class ClaimProcessingRunner {
 
     public static void main(String[] args) {
 
-        // -------------------------------------------------
-        // 1. Create repositories
-        // -------------------------------------------------
-
         PolicyHolderRepository policyHolderRepository =
                 new PolicyHolderRepository();
 
@@ -29,11 +22,14 @@ public class ClaimProcessingRunner {
         CoverageRuleRepository coverageRuleRepository =
                 new CoverageRuleRepository();
 
+        ClaimProcessingService service =
+                new ClaimProcessingService(
+                        policyHolderRepository,
+                        planRepository,
+                        coverageRuleRepository);
 
-        // -------------------------------------------------
-        // 2. Create the submitted claim
-        // -------------------------------------------------
 
+        // This is the submitted claim
         Claim claim = new Claim();
 
         claim.setPolicyId("100001");
@@ -49,106 +45,10 @@ public class ClaimProcessingRunner {
                 new BigDecimal("1000"));
 
 
-        // -------------------------------------------------
-        // 3. Find policyholder
-        // -------------------------------------------------
-
-        PolicyHolder policyHolder =
-                policyHolderRepository.findByPolicyHolderId(
-                        claim.getPolicyHolderId());
-
-        if (policyHolder == null) {
-
-            System.out.println(
-                    "E0001 - Policy holder does not exist");
-
-            return;
-        }
-
-
-        // -------------------------------------------------
-        // 4. Find policyholder's plan
-        // -------------------------------------------------
-
-        Plan plan =
-                planRepository.findByPlanId(
-                        policyHolder.getPlanId());
-
-        if (plan == null) {
-
-            System.out.println(
-                    "Plan does not exist");
-
-            return;
-        }
-
-
-        // -------------------------------------------------
-        // 5. Find coverage rule
-        //
-        // Plan ID comes from PolicyHolder.
-        // Category/Subcategory come from Claim.
-        // -------------------------------------------------
-
-        CoverageRule coverageRule =
-                coverageRuleRepository.findCoverageRule(
-                        plan.getPlanId(),
-                        claim.getMainCategory(),
-                        claim.getSubCategory());
-
-        if (coverageRule == null) {
-
-            System.out.println(
-                    "Coverage rule does not exist");
-
-            return;
-        }
-
-
-        // -------------------------------------------------
-        // 6. Process claim
-        // -------------------------------------------------
-
-        ClaimProcessingService service =
-                new ClaimProcessingService();
-
+        // Caller only submits Claim
         ClaimResult result =
-                service.processClaim(
-                        claim,
-                        policyHolder,
-                        plan,
-                        coverageRule);
+                service.processClaim(claim);
 
-
-        // -------------------------------------------------
-        // 7. Display what the system discovered
-        // -------------------------------------------------
-
-        System.out.println();
-
-        System.out.println(
-                "Policyholder found: "
-                        + policyHolder.getMemberName());
-
-        System.out.println(
-                "Policyholder plan: "
-                        + policyHolder.getPlanId());
-
-        System.out.println(
-                "Coverage rule: "
-                        + coverageRule.getRuleType());
-
-        System.out.println(
-                "Coverage value: "
-                        + coverageRule.getCoverageValue());
-
-
-        // -------------------------------------------------
-        // 8. Display claim result
-        // -------------------------------------------------
-
-        System.out.println();
-        System.out.println("----- Claim Result -----");
 
         System.out.println(
                 "Policyholder ID: "
@@ -177,6 +77,14 @@ public class ClaimProcessingRunner {
         System.out.println(
                 "Updated Family Deductible: "
                         + result.getFamilyAccumulatedDeductible());
+
+        System.out.println(
+                "Error Code: "
+                        + result.getErrorCode());
+
+        System.out.println(
+                "Error Message: "
+                        + result.getErrorMessage());
 
         System.out.println(
                 "Message: "

@@ -1,11 +1,13 @@
 package com.claims.repository;
 
 import com.claims.model.CoverageRule;
+import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
 
+@Repository
 public class CoverageRuleRepository {
 
     private final Map<String, CoverageRule> coverageRules =
@@ -17,9 +19,10 @@ public class CoverageRuleRepository {
 
     private void loadCoverageRules() {
 
-        // -------------------------------------------------
-        // P001 - Room and Board
-        // -------------------------------------------------
+        // =================================================
+        // P001 - ROOM AND BOARD
+        // 40% AFTER DEDUCTIBLE
+        // =================================================
 
         CoverageRule p001RoomAndBoard =
                 new CoverageRule();
@@ -41,9 +44,10 @@ public class CoverageRuleRepository {
         addCoverageRule(p001RoomAndBoard);
 
 
-        // -------------------------------------------------
-        // P002 - Room and Board
-        // -------------------------------------------------
+        // =================================================
+        // P002 - ROOM AND BOARD
+        // 50% AFTER DEDUCTIBLE
+        // =================================================
 
         CoverageRule p002RoomAndBoard =
                 new CoverageRule();
@@ -65,9 +69,10 @@ public class CoverageRuleRepository {
         addCoverageRule(p002RoomAndBoard);
 
 
-        // -------------------------------------------------
-        // P003 - Room and Board
-        // -------------------------------------------------
+        // =================================================
+        // P003 - ROOM AND BOARD
+        // 60% AFTER DEDUCTIBLE
+        // =================================================
 
         CoverageRule p003RoomAndBoard =
                 new CoverageRule();
@@ -87,7 +92,57 @@ public class CoverageRuleRepository {
                 new BigDecimal("60"));
 
         addCoverageRule(p003RoomAndBoard);
+
+
+        // =================================================
+        // P001 - PREVENTIVE CARE
+        // NO CHARGE
+        // =================================================
+
+        CoverageRule p001PreventiveCare =
+                new CoverageRule();
+
+        p001PreventiveCare.setPlanId("P001");
+
+        p001PreventiveCare.setMainCategory(
+                "Preventive Care");
+
+        p001PreventiveCare.setSubCategory(
+                "ROUTINE PHYSICAL EXAM");
+
+        p001PreventiveCare.setRuleType(
+                "NO_CHARGE");
+
+        p001PreventiveCare.setCoverageValue(null);
+
+        addCoverageRule(p001PreventiveCare);
+
+
+        // =================================================
+        // P003 - URGENT CARE
+        // FLAT $120
+        // =================================================
+
+        CoverageRule p003UrgentCare =
+                new CoverageRule();
+
+        p003UrgentCare.setPlanId("P003");
+
+        p003UrgentCare.setMainCategory(
+                "Urgent Care");
+
+        p003UrgentCare.setSubCategory(
+                "URGENT CARE VISIT");
+
+        p003UrgentCare.setRuleType(
+                "FLAT_DOLLAR");
+
+        p003UrgentCare.setCoverageValue(
+                new BigDecimal("120"));
+
+        addCoverageRule(p003UrgentCare);
     }
+
 
     private void addCoverageRule(
             CoverageRule coverageRule) {
@@ -103,6 +158,7 @@ public class CoverageRuleRepository {
                 coverageRule);
     }
 
+
     public CoverageRule findCoverageRule(
             String planId,
             String mainCategory,
@@ -117,6 +173,7 @@ public class CoverageRuleRepository {
         return coverageRules.get(key);
     }
 
+
     private String buildKey(
             String planId,
             String mainCategory,
@@ -128,6 +185,7 @@ public class CoverageRuleRepository {
                 + "|"
                 + normalize(subCategory);
     }
+
 
     private String normalize(String value) {
 

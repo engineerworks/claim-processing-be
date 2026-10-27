@@ -1,11 +1,12 @@
 package com.claims.repository;
 
 import com.claims.model.Plan;
+import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-
+@Repository
 public class PlanRepository {
 
     private final Map<String, Plan> plans =
