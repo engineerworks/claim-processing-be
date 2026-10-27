@@ -1,8 +1,16 @@
 package com.claims.repository;
 
 import com.claims.model.CoverageRule;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Repository;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
@@ -10,8 +18,14 @@ import java.util.Map;
 @Repository
 public class CoverageRuleRepository {
 
+    private static final String FILE_PATH =
+            "data/SamplePlanAndTransactionData_1.xlsx";
+
     private final Map<String, CoverageRule> coverageRules =
             new HashMap<>();
+
+    private final DataFormatter formatter =
+            new DataFormatter();
 
     public CoverageRuleRepository() {
         loadCoverageRules();
@@ -19,128 +33,288 @@ public class CoverageRuleRepository {
 
     private void loadCoverageRules() {
 
-        // =================================================
-        // P001 - ROOM AND BOARD
-        // 40% AFTER DEDUCTIBLE
-        // =================================================
+        try (InputStream inputStream =
+                     getClass()
+                             .getClassLoader()
+                             .getResourceAsStream(FILE_PATH)) {
 
-        CoverageRule p001RoomAndBoard =
+            if (inputStream == null) {
+
+                throw new IllegalStateException(
+                        "Excel file not found: "
+                                + FILE_PATH);
+            }
+
+            try (Workbook workbook =
+                         new XSSFWorkbook(inputStream)) {
+
+                Sheet sheet =
+                        workbook.getSheet("PlanCoverage");
+
+                if (sheet == null) {
+
+                    throw new IllegalStateException(
+                            "PlanCoverage sheet not found");
+                }
+
+                String currentMainCategory = "";
+
+                for (int rowIndex = 0;
+                     rowIndex <= sheet.getLastRowNum();
+                     rowIndex++) {
+
+                    Row row =
+                            sheet.getRow(rowIndex);
+
+                    if (row == null) {
+                        continue;
+                    }
+
+                    String mainCategory =
+                            readString(row.getCell(0));
+
+                    String subCategory =
+                            readString(row.getCell(1));
+
+                    /*
+                     * Skip the heading row.
+                     */
+                    if ("Main Category"
+                            .equalsIgnoreCase(mainCategory)) {
+
+                        continue;
+                    }
+
+                    /*
+                     * Some rows don't repeat the main
+                     * category.
+                     *
+                     * Example:
+                     *
+                     * Outpatient Services
+                     *     PRIMARY CARE OFFICE VISIT
+                     *     SPECIALTY CARE OFFICE VISIT
+                     *     X-RAYS
+                     *
+                     * Therefore remember the last
+                     * non-empty main category.
+                     */
+                    if (!mainCategory.isBlank()) {
+
+                        currentMainCategory =
+                                mainCategory;
+                    }
+
+                    /*
+                     * Ignore rows without a subcategory.
+                     *
+                     * This also skips the explanatory
+                     * text appearing below the coverage
+                     * table.
+                     */
+                    if (currentMainCategory.isBlank()
+                            || subCategory.isBlank()) {
+
+                        continue;
+                    }
+
+                    String p001Rule =
+                            readString(row.getCell(2));
+
+                    String p002Rule =
+                            readString(row.getCell(3));
+
+                    String p003Rule =
+                            readString(row.getCell(4));
+
+                    addRulesForSubCategories(
+                            "P001",
+                            currentMainCategory,
+                            subCategory,
+                            p001Rule);
+
+                    addRulesForSubCategories(
+                            "P002",
+                            currentMainCategory,
+                            subCategory,
+                            p002Rule);
+
+                    addRulesForSubCategories(
+                            "P003",
+                            currentMainCategory,
+                            subCategory,
+                            p003Rule);
+                }
+            }
+
+        } catch (IOException exception) {
+
+            throw new IllegalStateException(
+                    "Unable to read PlanCoverage",
+                    exception);
+        }
+
+        System.out.println(
+                "Coverage rules loaded from Excel: "
+                        + coverageRules.size());
+    }
+
+
+    private void addRulesForSubCategories(
+            String planId,
+            String mainCategory,
+            String subCategoryCell,
+            String ruleText) {
+
+        if (ruleText == null
+                || ruleText.isBlank()) {
+
+            return;
+        }
+
+        /*
+         * Some Excel rows contain multiple subcategories.
+         *
+         * Example:
+         *
+         * ROOM AND BOARD, SURGERY, ANESTHESIA...
+         *
+         * The assignment says the same rule applies
+         * individually to each of those services.
+         */
+        String[] subCategories =
+                subCategoryCell.split(",");
+
+        for (String subCategory : subCategories) {
+
+            String cleanedSubCategory =
+                    subCategory.trim();
+
+            if (cleanedSubCategory.isBlank()) {
+                continue;
+            }
+
+            CoverageRule coverageRule =
+                    createCoverageRule(
+                            planId,
+                            mainCategory,
+                            cleanedSubCategory,
+                            ruleText);
+
+            addCoverageRule(
+                    coverageRule);
+        }
+    }
+
+
+    private CoverageRule createCoverageRule(
+            String planId,
+            String mainCategory,
+            String subCategory,
+            String ruleText) {
+
+        CoverageRule coverageRule =
                 new CoverageRule();
 
-        p001RoomAndBoard.setPlanId("P001");
+        coverageRule.setPlanId(
+                planId);
 
-        p001RoomAndBoard.setMainCategory(
-                "Inpatient Hospital Care");
+        coverageRule.setMainCategory(
+                mainCategory);
 
-        p001RoomAndBoard.setSubCategory(
-                "ROOM AND BOARD");
+        coverageRule.setSubCategory(
+                subCategory);
 
-        p001RoomAndBoard.setRuleType(
-                "PERCENTAGE_AFTER_DEDUCTIBLE");
+        String normalizedRule =
+                ruleText
+                        .trim()
+                        .toUpperCase();
 
-        p001RoomAndBoard.setCoverageValue(
-                new BigDecimal("40"));
+        /*
+         * RULE 1:
+         * NO CHARGE
+         */
+        if ("NO CHARGE".equals(
+                normalizedRule)) {
 
-        addCoverageRule(p001RoomAndBoard);
+            coverageRule.setRuleType(
+                    "NO_CHARGE");
 
+            coverageRule.setCoverageValue(
+                    null);
 
-        // =================================================
-        // P002 - ROOM AND BOARD
-        // 50% AFTER DEDUCTIBLE
-        // =================================================
+            return coverageRule;
+        }
 
-        CoverageRule p002RoomAndBoard =
-                new CoverageRule();
+        /*
+         * RULE 2:
+         * Percentage after deductible.
+         *
+         * Example:
+         * 40% AFTER DEDUCTIBLE
+         */
+        if (normalizedRule.contains("%")) {
 
-        p002RoomAndBoard.setPlanId("P002");
+            int percentageIndex =
+                    normalizedRule.indexOf("%");
 
-        p002RoomAndBoard.setMainCategory(
-                "Inpatient Hospital Care");
+            String percentageValue =
+                    normalizedRule
+                            .substring(
+                                    0,
+                                    percentageIndex)
+                            .trim();
 
-        p002RoomAndBoard.setSubCategory(
-                "ROOM AND BOARD");
+            coverageRule.setRuleType(
+                    "PERCENTAGE_AFTER_DEDUCTIBLE");
 
-        p002RoomAndBoard.setRuleType(
-                "PERCENTAGE_AFTER_DEDUCTIBLE");
+            coverageRule.setCoverageValue(
+                    new BigDecimal(
+                            percentageValue));
 
-        p002RoomAndBoard.setCoverageValue(
-                new BigDecimal("50"));
+            return coverageRule;
+        }
 
-        addCoverageRule(p002RoomAndBoard);
+        /*
+         * RULE 3:
+         * Flat-dollar amount.
+         *
+         * Actual workbook values for P002/P003
+         * urgent care are 100 and 120.
+         */
+        try {
 
+            String flatDollarValue =
+                    normalizedRule
+                            .replace("$", "")
+                            .replace("FLAT", "")
+                            .trim();
 
-        // =================================================
-        // P003 - ROOM AND BOARD
-        // 60% AFTER DEDUCTIBLE
-        // =================================================
+            BigDecimal amount =
+                    new BigDecimal(
+                            flatDollarValue);
 
-        CoverageRule p003RoomAndBoard =
-                new CoverageRule();
+            coverageRule.setRuleType(
+                    "FLAT_DOLLAR");
 
-        p003RoomAndBoard.setPlanId("P003");
+            coverageRule.setCoverageValue(
+                    amount);
 
-        p003RoomAndBoard.setMainCategory(
-                "Inpatient Hospital Care");
+            return coverageRule;
 
-        p003RoomAndBoard.setSubCategory(
-                "ROOM AND BOARD");
+        } catch (NumberFormatException exception) {
 
-        p003RoomAndBoard.setRuleType(
-                "PERCENTAGE_AFTER_DEDUCTIBLE");
-
-        p003RoomAndBoard.setCoverageValue(
-                new BigDecimal("60"));
-
-        addCoverageRule(p003RoomAndBoard);
-
-
-        // =================================================
-        // P001 - PREVENTIVE CARE
-        // NO CHARGE
-        // =================================================
-
-        CoverageRule p001PreventiveCare =
-                new CoverageRule();
-
-        p001PreventiveCare.setPlanId("P001");
-
-        p001PreventiveCare.setMainCategory(
-                "Preventive Care");
-
-        p001PreventiveCare.setSubCategory(
-                "ROUTINE PHYSICAL EXAM");
-
-        p001PreventiveCare.setRuleType(
-                "NO_CHARGE");
-
-        p001PreventiveCare.setCoverageValue(null);
-
-        addCoverageRule(p001PreventiveCare);
-
-
-        // =================================================
-        // P003 - URGENT CARE
-        // FLAT $120
-        // =================================================
-
-        CoverageRule p003UrgentCare =
-                new CoverageRule();
-
-        p003UrgentCare.setPlanId("P003");
-
-        p003UrgentCare.setMainCategory(
-                "Urgent Care");
-
-        p003UrgentCare.setSubCategory(
-                "URGENT CARE VISIT");
-
-        p003UrgentCare.setRuleType(
-                "FLAT_DOLLAR");
-
-        p003UrgentCare.setCoverageValue(
-                new BigDecimal("120"));
-
-        addCoverageRule(p003UrgentCare);
+            throw new IllegalStateException(
+                    "Unsupported coverage rule: "
+                            + ruleText
+                            + " for "
+                            + planId
+                            + " / "
+                            + mainCategory
+                            + " / "
+                            + subCategory,
+                    exception);
+        }
     }
 
 
@@ -170,7 +344,8 @@ public class CoverageRuleRepository {
                         mainCategory,
                         subCategory);
 
-        return coverageRules.get(key);
+        return coverageRules.get(
+                key);
     }
 
 
@@ -187,7 +362,8 @@ public class CoverageRuleRepository {
     }
 
 
-    private String normalize(String value) {
+    private String normalize(
+            String value) {
 
         if (value == null) {
             return "";
@@ -195,6 +371,20 @@ public class CoverageRuleRepository {
 
         return value
                 .trim()
+                .replaceAll("\\s+", " ")
                 .toUpperCase();
+    }
+
+
+    private String readString(
+            Cell cell) {
+
+        if (cell == null) {
+            return "";
+        }
+
+        return formatter
+                .formatCellValue(cell)
+                .trim();
     }
 }

@@ -1,16 +1,31 @@
 package com.claims.repository;
 
 import com.claims.model.Plan;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Repository;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
+
 @Repository
 public class PlanRepository {
 
+    private static final String FILE_PATH =
+            "data/SamplePlanAndTransactionData_1.xlsx";
+
     private final Map<String, Plan> plans =
             new HashMap<>();
+
+    private final DataFormatter formatter =
+            new DataFormatter();
 
     public PlanRepository() {
         loadPlans();
@@ -18,46 +33,131 @@ public class PlanRepository {
 
     private void loadPlans() {
 
-        Plan p001 = new Plan();
+        try (InputStream inputStream =
+                     getClass()
+                             .getClassLoader()
+                             .getResourceAsStream(FILE_PATH)) {
 
-        p001.setPlanId("P001");
-        p001.setIndividualDeductible(
-                new BigDecimal("6000"));
-        p001.setFamilyDeductible(
-                new BigDecimal("12000"));
+            if (inputStream == null) {
 
-        plans.put(
-                p001.getPlanId(),
-                p001);
+                throw new IllegalStateException(
+                        "Excel file not found: "
+                                + FILE_PATH);
+            }
 
+            try (Workbook workbook =
+                         new XSSFWorkbook(inputStream)) {
 
-        Plan p002 = new Plan();
+                Sheet sheet =
+                        workbook.getSheet(
+                                "PlanDescriptions");
 
-        p002.setPlanId("P002");
-        p002.setIndividualDeductible(
-                new BigDecimal("5000"));
-        p002.setFamilyDeductible(
-                new BigDecimal("10000"));
+                if (sheet == null) {
 
-        plans.put(
-                p002.getPlanId(),
-                p002);
+                    throw new IllegalStateException(
+                            "PlanDescriptions sheet not found");
+                }
 
+                for (int rowIndex = 0;
+                     rowIndex <= sheet.getLastRowNum();
+                     rowIndex++) {
 
-        Plan p003 = new Plan();
+                    Row row =
+                            sheet.getRow(rowIndex);
 
-        p003.setPlanId("P003");
-        p003.setIndividualDeductible(
-                new BigDecimal("4000"));
-        p003.setFamilyDeductible(
-                new BigDecimal("8000"));
+                    if (row == null) {
+                        continue;
+                    }
 
-        plans.put(
-                p003.getPlanId(),
-                p003);
+                    String planId =
+                            readString(row.getCell(0));
+
+                    // Skip empty rows
+                    if (planId.isBlank()) {
+                        continue;
+                    }
+
+                    // Skip header
+                    if ("PlanId".equalsIgnoreCase(
+                            planId)) {
+                        continue;
+                    }
+
+                    BigDecimal individualDeductible =
+                            readMoney(
+                                    row.getCell(4));
+
+                    BigDecimal familyDeductible =
+                            readMoney(
+                                    row.getCell(5));
+
+                    Plan plan =
+                            new Plan();
+
+                    plan.setPlanId(
+                            planId);
+
+                    plan.setIndividualDeductible(
+                            individualDeductible);
+
+                    plan.setFamilyDeductible(
+                            familyDeductible);
+
+                    plans.put(
+                            planId,
+                            plan);
+                }
+            }
+
+        } catch (IOException exception) {
+
+            throw new IllegalStateException(
+                    "Unable to read PlanDescriptions",
+                    exception);
+        }
+
+        System.out.println(
+                "Plans loaded from Excel: "
+                        + plans.size());
+
+        System.out.println(
+                "Plan IDs: "
+                        + plans.keySet());
     }
 
-    public Plan findByPlanId(String planId) {
+    public Plan findByPlanId(
+            String planId) {
+
         return plans.get(planId);
+    }
+
+    private String readString(
+            Cell cell) {
+
+        if (cell == null) {
+            return "";
+        }
+
+        return formatter
+                .formatCellValue(cell)
+                .trim();
+    }
+
+    private BigDecimal readMoney(
+            Cell cell) {
+
+        String value =
+                readString(cell);
+
+        if (value.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+
+        value = value
+                .replace("$", "")
+                .replace(",", "")
+                .trim();
+
+        return new BigDecimal(value);
     }
 }
