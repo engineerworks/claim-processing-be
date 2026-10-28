@@ -34,24 +34,28 @@ public class ClaimProcessingService {
             PlanRepository planRepository,
             CoverageRuleRepository coverageRuleRepository) {
 
-        this.policyHolderRepository =
-                policyHolderRepository;
-
-        this.planRepository =
-                planRepository;
-
-        this.coverageRuleRepository =
-                coverageRuleRepository;
+        this.policyHolderRepository = policyHolderRepository;
+        this.planRepository = planRepository;
+        this.coverageRuleRepository = coverageRuleRepository;
     }
 
     public ClaimResult processClaim(Claim claim) {
 
-        ClaimResult result = createInitialResult(claim);
+        ClaimResult result =
+                createInitialResult(claim);
 
-        /*
-         * Step 1:
-         * Validate basic claim information.
-         */
+        // ---------------------------------------------
+        // 1. Validate basic claim information
+        // ---------------------------------------------
+
+        if (claim == null) {
+
+            return createErrorResult(
+                    result,
+                    "E0002",
+                    "Claim is required");
+        }
+
         if (claim.getPolicyHolderId() == null
                 || claim.getPolicyHolderId().isBlank()) {
 
@@ -71,10 +75,11 @@ public class ClaimProcessingService {
                     "Billed amount must be greater than zero");
         }
 
-        /*
-         * Step 2:
-         * Find the policyholder using the ID from the claim.
-         */
+
+        // ---------------------------------------------
+        // 2. Find policyholder
+        // ---------------------------------------------
+
         PolicyHolder policyHolder =
                 policyHolderRepository.findByPolicyHolderId(
                         claim.getPolicyHolderId());
@@ -87,11 +92,11 @@ public class ClaimProcessingService {
                     "Policy holder does not exist");
         }
 
-        /*
-         * Step 3:
-         * Check that the supplied policy ID belongs
-         * to this policyholder.
-         */
+
+        // ---------------------------------------------
+        // 3. Validate Policy ID
+        // ---------------------------------------------
+
         if (claim.getPolicyId() == null
                 || !policyHolder.getPolicyId()
                 .equals(claim.getPolicyId())) {
@@ -102,10 +107,55 @@ public class ClaimProcessingService {
                     "Policy does not match policy holder");
         }
 
-        /*
-         * Step 4:
-         * Find the plan assigned to the policyholder.
-         */
+
+        // ---------------------------------------------
+        // 4. Validate Date of Service
+        // ---------------------------------------------
+
+        if (claim.getDateOfService() == null) {
+
+            return createErrorResult(
+                    result,
+                    "E0007",
+                    "Date of service is required");
+        }
+
+
+        // Claim cannot happen before coverage starts.
+
+        if (policyHolder.getCoverageStartDate() != null
+                && claim.getDateOfService()
+                .isBefore(
+                        policyHolder.getCoverageStartDate())) {
+
+            return createErrorResult(
+                    result,
+                    "E0008",
+                    "Coverage was not active on date of service");
+        }
+
+
+        // Claim cannot happen after coverage ends.
+        //
+        // If coverageEndDate is null, there is no
+        // specified coverage end date.
+
+        if (policyHolder.getCoverageEndDate() != null
+                && claim.getDateOfService()
+                .isAfter(
+                        policyHolder.getCoverageEndDate())) {
+
+            return createErrorResult(
+                    result,
+                    "E0008",
+                    "Coverage was not active on date of service");
+        }
+
+
+        // ---------------------------------------------
+        // 5. Find Plan
+        // ---------------------------------------------
+
         Plan plan =
                 planRepository.findByPlanId(
                         policyHolder.getPlanId());
@@ -118,16 +168,14 @@ public class ClaimProcessingService {
                     "Plan does not exist");
         }
 
-        result.setPlanId(plan.getPlanId());
+        result.setPlanId(
+                plan.getPlanId());
 
-        /*
-         * Step 5:
-         * Find the coverage rule using:
-         *
-         * Plan ID
-         * + Main category
-         * + Subcategory
-         */
+
+        // ---------------------------------------------
+        // 6. Find Coverage Rule
+        // ---------------------------------------------
+
         CoverageRule coverageRule =
                 coverageRuleRepository.findCoverageRule(
                         plan.getPlanId(),
@@ -145,16 +193,18 @@ public class ClaimProcessingService {
         result.setRuleUsed(
                 coverageRule.getRuleType());
 
-        /*
-         * Step 6:
-         * Calculate the payment according to the rule.
-         */
+
+        // ---------------------------------------------
+        // 7. Calculate Payment
+        // ---------------------------------------------
+
         PaymentCalculation paymentCalculation =
                 calculatePayment(
                         claim,
                         policyHolder,
                         plan,
                         coverageRule);
+
 
         if (paymentCalculation.errorMessage != null) {
 
@@ -164,11 +214,11 @@ public class ClaimProcessingService {
                     paymentCalculation.errorMessage);
         }
 
-        /*
-         * Step 7:
-         * Add the amount paid by the policyholder
-         * to the accumulated deductibles.
-         */
+
+        // ---------------------------------------------
+        // 8. Update accumulated deductibles
+        // ---------------------------------------------
+
         BigDecimal updatedIndividualDeductible =
                 policyHolder
                         .getIndividualAccumulatedDeductible()
@@ -183,23 +233,20 @@ public class ClaimProcessingService {
                                 paymentCalculation
                                         .policyHolderPays);
 
-        /*
-         * Step 8:
-         * Update the in-memory policyholder record.
-         *
-         * This means the next claim sees the updated
-         * deductible values.
-         */
+
+        // Keep updated state in memory.
+
         policyHolder.setIndividualAccumulatedDeductible(
                 updatedIndividualDeductible);
 
         policyHolder.setFamilyAccumulatedDeductible(
                 updatedFamilyDeductible);
 
-        /*
-         * Step 9:
-         * Populate the successful result.
-         */
+
+        // ---------------------------------------------
+        // 9. Create successful result
+        // ---------------------------------------------
+
         result.setPolicyHolderPays(
                 paymentCalculation.policyHolderPays);
 
@@ -218,6 +265,7 @@ public class ClaimProcessingService {
         return result;
     }
 
+
     private PaymentCalculation calculatePayment(
             Claim claim,
             PolicyHolder policyHolder,
@@ -227,30 +275,35 @@ public class ClaimProcessingService {
         String ruleType =
                 coverageRule.getRuleType();
 
-        /*
-         * NO_CHARGE
-         *
-         * Policyholder pays zero.
-         * Plan pays the complete billed amount.
-         */
+
+        // =============================================
+        // RULE 1: NO CHARGE
+        // =============================================
+
         if (NO_CHARGE.equals(ruleType)) {
 
-            return new PaymentCalculation(
-                    BigDecimal.ZERO.setScale(2),
+            BigDecimal policyHolderPays =
+                    BigDecimal.ZERO
+                            .setScale(2);
+
+            BigDecimal planPays =
                     claim.getBilledAmount()
                             .setScale(
                                     2,
-                                    RoundingMode.HALF_UP),
+                                    RoundingMode.HALF_UP);
+
+            return new PaymentCalculation(
+                    policyHolderPays,
+                    planPays,
                     "Claim processed using no-charge coverage",
                     null);
         }
 
-        /*
-         * FLAT_DOLLAR
-         *
-         * Plan pays a fixed amount.
-         * Policyholder pays the remaining amount.
-         */
+
+        // =============================================
+        // RULE 2: FLAT DOLLAR
+        // =============================================
+
         if (FLAT_DOLLAR.equals(ruleType)) {
 
             if (coverageRule.getCoverageValue() == null) {
@@ -260,22 +313,18 @@ public class ClaimProcessingService {
             }
 
             /*
-             * min() prevents the plan payment from
-             * exceeding the billed amount.
-             *
-             * Example:
-             * Bill = 80
-             * Flat coverage = 120
-             *
-             * Plan pays 80, not 120.
+             * The plan cannot pay more than
+             * the actual billed amount.
              */
             BigDecimal planPays =
                     coverageRule
                             .getCoverageValue()
-                            .min(claim.getBilledAmount())
+                            .min(
+                                    claim.getBilledAmount())
                             .setScale(
                                     2,
                                     RoundingMode.HALF_UP);
+
 
             BigDecimal policyHolderPays =
                     claim.getBilledAmount()
@@ -284,6 +333,7 @@ public class ClaimProcessingService {
                                     2,
                                     RoundingMode.HALF_UP);
 
+
             return new PaymentCalculation(
                     policyHolderPays,
                     planPays,
@@ -291,9 +341,12 @@ public class ClaimProcessingService {
                     null);
         }
 
-        /*
-         * PERCENTAGE_AFTER_DEDUCTIBLE
-         */
+
+        // =============================================
+        // RULE 3:
+        // PERCENTAGE AFTER DEDUCTIBLE
+        // =============================================
+
         if (PERCENTAGE_AFTER_DEDUCTIBLE.equals(
                 ruleType)) {
 
@@ -303,12 +356,14 @@ public class ClaimProcessingService {
                         "Percentage coverage value is missing");
             }
 
+
             boolean individualDeductibleMet =
                     policyHolder
                             .getIndividualAccumulatedDeductible()
                             .compareTo(
                                     plan.getIndividualDeductible())
                             >= 0;
+
 
             boolean familyDeductibleMet =
                     policyHolder
@@ -317,28 +372,45 @@ public class ClaimProcessingService {
                                     plan.getFamilyDeductible())
                             >= 0;
 
+
             boolean deductibleMet =
                     individualDeductibleMet
                             || familyDeductibleMet;
 
+
             /*
              * If neither deductible is met,
-             * the policyholder pays the full bill.
+             * member pays the complete bill.
              */
             if (!deductibleMet) {
 
-                return new PaymentCalculation(
+                BigDecimal policyHolderPays =
                         claim.getBilledAmount()
                                 .setScale(
                                         2,
-                                        RoundingMode.HALF_UP),
-                        BigDecimal.ZERO.setScale(2),
+                                        RoundingMode.HALF_UP);
+
+                BigDecimal planPays =
+                        BigDecimal.ZERO
+                                .setScale(2);
+
+
+                return new PaymentCalculation(
+                        policyHolderPays,
+                        planPays,
                         "Deductible not met; policy holder pays full amount",
                         null);
             }
 
+
             /*
-             * Convert 40 into 0.40.
+             * Convert percentage:
+             *
+             * 40
+             *
+             * into:
+             *
+             * 0.40
              */
             BigDecimal coveragePercentage =
                     coverageRule
@@ -348,19 +420,24 @@ public class ClaimProcessingService {
                                     4,
                                     RoundingMode.HALF_UP);
 
+
             BigDecimal planPays =
                     claim.getBilledAmount()
-                            .multiply(coveragePercentage)
+                            .multiply(
+                                    coveragePercentage)
                             .setScale(
                                     2,
                                     RoundingMode.HALF_UP);
 
+
             BigDecimal policyHolderPays =
                     claim.getBilledAmount()
-                            .subtract(planPays)
+                            .subtract(
+                                    planPays)
                             .setScale(
                                     2,
                                     RoundingMode.HALF_UP);
+
 
             String deductibleMessage;
 
@@ -375,6 +452,7 @@ public class ClaimProcessingService {
                         "Family deductible met";
             }
 
+
             return new PaymentCalculation(
                     policyHolderPays,
                     planPays,
@@ -383,9 +461,12 @@ public class ClaimProcessingService {
                     null);
         }
 
+
         return PaymentCalculation.error(
-                "Unsupported coverage rule: " + ruleType);
+                "Unsupported coverage rule: "
+                        + ruleType);
     }
+
 
     private ClaimResult createInitialResult(
             Claim claim) {
@@ -408,25 +489,35 @@ public class ClaimProcessingService {
         return result;
     }
 
+
     private ClaimResult createErrorResult(
             ClaimResult result,
             String errorCode,
             String errorMessage) {
 
-        result.setErrorCode(errorCode);
-        result.setErrorMessage(errorMessage);
+        result.setErrorCode(
+                errorCode);
+
+        result.setErrorMessage(
+                errorMessage);
+
         result.setProcessingMessage(
                 "Claim processing failed");
 
         return result;
     }
 
+
     private static class PaymentCalculation {
 
         private final BigDecimal policyHolderPays;
+
         private final BigDecimal planPays;
+
         private final String processingMessage;
+
         private final String errorMessage;
+
 
         private PaymentCalculation(
                 BigDecimal policyHolderPays,
@@ -446,6 +537,7 @@ public class ClaimProcessingService {
             this.errorMessage =
                     errorMessage;
         }
+
 
         private static PaymentCalculation error(
                 String errorMessage) {
